@@ -304,7 +304,7 @@ class BaseTrainer(object):
             self.persistent_state
             and self.cfg.model.lower() == "persistentlstm"
             and not self.parallel_persistent
-        )
+        ):
             # NOTE: we deliberately DO NOT use any "persist across epochs" file saving here.
             # We only ensure: persistent across batches within epoch + random interleaving of basins.
             basin_to_sorted_indices = self._build_basin_chrono_index(ds)
