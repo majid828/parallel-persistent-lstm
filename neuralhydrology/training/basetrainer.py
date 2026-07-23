@@ -360,27 +360,6 @@ class BaseTrainer(object):
                     "ParallelPersistentTrainer will create sampler."
                 )
 
-            # NOTE: we deliberately DO NOT use any "persist across epochs" file saving here.
-            # We only ensure: persistent across batches within epoch + random interleaving of basins.
-            basin_to_sorted_indices = self._build_basin_chrono_index(ds)
-            # Store for Parallel Persistent Trainer
-            self.basin_to_sorted_indices = basin_to_sorted_indices
-
-            self._basin_batch_sampler = BasinChronoInterleaveBatchSampler(
-                basin_to_sorted_indices=basin_to_sorted_indices,
-                batch_size=self.cfg.batch_size,
-                drop_last=True,
-                seed=self.cfg.seed if self.cfg.seed is not None else 0,
-            )
-
-            # DataLoader uses our sampler; don't enable shuffle here.
-            self.loader = DataLoader(
-                ds,
-                batch_sampler=self._basin_batch_sampler,
-                num_workers=self.cfg.num_workers,
-                collate_fn=ds.collate_fn,
-            )
-            LOGGER.info("### Using BasinChronoInterleaveBatchSampler (interleaved basins, chrono within basin).")
         elif self.parallel_persistent:
             # ParallelPersistentTrainer will replace loader
             # using ParallelBasinSequenceBatchSampler
