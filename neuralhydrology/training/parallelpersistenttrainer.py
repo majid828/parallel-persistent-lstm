@@ -1,6 +1,5 @@
 import logging
 import sys
-from typing import Dict, Tuple, Optional
 
 import torch
 from torch.utils.data import DataLoader
@@ -17,22 +16,32 @@ LOGGER = logging.getLogger(__name__)
 
 class ParallelPersistentTrainer(BaseTrainer):
     """
-    Parallel Persistent LSTM trainer.
+    Parallel Persistent LSTM Trainer.
 
-    Uses heterogeneous multi-basin batches:
+    Proposed strategy:
 
-        [
-            Basin A sequence k,
-            Basin B sequence k,
-            Basin C sequence k
-        ]
+    Instead of:
 
-    while maintaining independent hidden/cell states:
+        Basin A:
+            seq1 -> seq2 -> seq3
+
+    using one basin per batch,
+
+    we train:
+
+        Batch k:
+
+        Basin A sequence k
+        Basin B sequence k
+        Basin C sequence k
+
+
+    Each basin maintains an independent hidden/cell state:
 
         basin_id -> (hidden_state, cell_state)
 
-    The original Persistent LSTM implementation remains
-    unchanged through BaseTrainer.
+
+    The original Persistent LSTM implementation remains unchanged.
     """
 
 
@@ -40,20 +49,20 @@ class ParallelPersistentTrainer(BaseTrainer):
 
         super().__init__(cfg)
 
-        # Basin indexed hidden-state memory
+        # Basin-specific hidden memory
         self.state_cache = {}
 
 
 
     # ==============================================================
-    # TRAINING INITIALIZATION
+    # INITIALIZATION
     # ==============================================================
 
     def initialize_training(self):
 
         """
-        Initialize training using BaseTrainer and replace
-        the original persistent sampler with the parallel sampler.
+        Initialize using BaseTrainer, then replace the
+        standard loader with Parallel Persistent loader.
         """
 
         super().initialize_training()
@@ -75,138 +84,120 @@ class ParallelPersistentTrainer(BaseTrainer):
             )
 
 
-        if not self.cfg.basin_state_cache:
-
-            raise ValueError(
-                "basin_state_cache must be enabled "
-                "for Parallel Persistent LSTM."
-            )
-
-
         self._initialize_parallel_sampler()
 
 
 
+    # ==============================================================
+    # PARALLEL SAMPLER
+    # ==============================================================
+
     def _initialize_parallel_sampler(self):
 
         """
-        Replace the original Persistent LSTM sampler with
+        Replace original Persistent LSTM sampler with
         ParallelBasinSequenceBatchSampler.
         """
 
 
-        # ----------------------------------------------------------
-        # Locate training dataset
-        # ----------------------------------------------------------
-
-        if hasattr(self, "dataset_train"):
-
-            dataset = self.dataset_train
-
-        elif hasattr(self, "train_dataset"):
-
-            dataset = self.train_dataset
-
-        elif hasattr(self, "dataset"):
-
-            dataset = self.dataset
-
-        else:
+        if not hasattr(
+            self,
+            "train_dataset"
+        ):
 
             raise AttributeError(
-                "Training dataset not found in BaseTrainer."
+                "BaseTrainer must expose train_dataset."
             )
 
 
-        # ----------------------------------------------------------
-        # Locate basin chronological indices
-        # ----------------------------------------------------------
-
-        if hasattr(
+        if not hasattr(
             self,
             "basin_to_sorted_indices"
         ):
 
-            basin_indices = (
-                self.basin_to_sorted_indices
-            )
-
-        elif hasattr(
-            self,
-            "_basin_to_sorted_indices"
-        ):
-
-            basin_indices = (
-                self._basin_to_sorted_indices
-            )
-
-        else:
-
             raise AttributeError(
-                "Basin chronological indices not found."
+                "BaseTrainer must expose "
+                "basin_to_sorted_indices."
             )
 
 
-        sampler = ParallelBasinSequenceBatchSampler(
+        self._parallel_batch_sampler = (
+            ParallelBasinSequenceBatchSampler(
+                basin_to_sorted_indices=
+                    self.basin_to_sorted_indices,
 
-            basin_to_sorted_indices=basin_indices,
+                n_basins_per_batch=
+                    self.cfg.parallel_persistent_n_basins,
 
-            n_basins_per_batch=
-                self.cfg.parallel_persistent_n_basins,
+                drop_last=True,
 
-            drop_last=True,
-
-            seed=42
+                seed=
+                    self.cfg.seed
+                    if self.cfg.seed is not None
+                    else 0,
+            )
         )
 
 
         self.loader = DataLoader(
 
-            dataset,
+            self.train_dataset,
 
-            batch_sampler=sampler,
+            batch_sampler=
+                self._parallel_batch_sampler,
 
-            num_workers=self.cfg.num_workers,
+            num_workers=
+                self.cfg.num_workers,
 
-            pin_memory=self.cfg.pin_memory
+            pin_memory=
+                self.cfg.pin_memory,
+
+            collate_fn=
+                self.train_dataset.collate_fn
         )
 
 
         LOGGER.info(
-            "Parallel basin sequence sampler enabled."
+            "### Parallel Basin Sequence Sampler enabled"
         )
 
 
 
     # ==============================================================
-    # BASIN STATE MANAGEMENT
+    # HIDDEN STATE MANAGEMENT
     # ==============================================================
-
 
     def _get_hidden_state(self, basin_ids):
 
         """
-        Retrieve hidden/cell states using basin identity.
+        Collect hidden states according to current batch order.
 
         Parameters
         ----------
         basin_ids:
-            Tensor [number_of_basins]
+            Tensor [batch]
 
         Returns
         -------
-        tuple(h,c) or None
+        (h,c) or None
         """
 
 
-        hidden_list = []
-        cell_list = []
+        hidden_states = []
+        cell_states = []
 
 
-        # If at least one basin has no history,
-        # initialize whole batch from zero state.
-        #
-        # LSTM will internally initialize missing states.
+        # If no basin has previous history,
+        # allow LSTM to initialize automatically.
+
+        if all(
+            int(b.item()) not in self.state_cache
+            for b in basin_ids
+        ):
+
+            return None
+
+
 
         for basin in basin_ids:
 
@@ -216,31 +207,36 @@ class ParallelPersistentTrainer(BaseTrainer):
             )
 
 
-            if basin not in self.state_cache:
+            if basin in self.state_cache:
 
+
+                h,c = self.state_cache[basin]
+
+
+                hidden_states.append(h)
+
+                cell_states.append(c)
+
+
+            else:
+
+                # Missing basin state:
+                # return None so LSTM starts from zero
                 return None
-
-
-            h,c = self.state_cache[basin]
-
-
-            hidden_list.append(h)
-            cell_list.append(c)
 
 
 
         return (
 
             torch.cat(
-                hidden_list,
+                hidden_states,
                 dim=1
             ),
 
             torch.cat(
-                cell_list,
+                cell_states,
                 dim=1
             )
-
         )
 
 
@@ -252,7 +248,7 @@ class ParallelPersistentTrainer(BaseTrainer):
     ):
 
         """
-        Save hidden/cell states separately for every basin.
+        Store hidden/cell state separately for each basin.
         """
 
 
@@ -287,7 +283,6 @@ class ParallelPersistentTrainer(BaseTrainer):
     # TRAINING LOOP
     # ==============================================================
 
-
     def _train_epoch(self, epoch):
 
 
@@ -297,6 +292,7 @@ class ParallelPersistentTrainer(BaseTrainer):
         self.experiment_logger.train()
 
 
+        # Reset memory every epoch
         # Prevent information leakage between epochs
 
         self.state_cache = {}
@@ -315,9 +311,7 @@ class ParallelPersistentTrainer(BaseTrainer):
 
 
         pbar.set_description(
-
             f"# Epoch {epoch} Parallel Persistent"
-
         )
 
 
@@ -325,11 +319,11 @@ class ParallelPersistentTrainer(BaseTrainer):
 
 
 
-        for i, data in enumerate(pbar):
+        for _, data in enumerate(pbar):
 
 
             # ------------------------------------------------------
-            # Move data to device
+            # Move batch to device
             # ------------------------------------------------------
 
             for key in data.keys():
@@ -340,7 +334,7 @@ class ParallelPersistentTrainer(BaseTrainer):
 
                     data[key] = {
 
-                        k: v.to(self.device)
+                        k:v.to(self.device)
 
                         for k,v in data[key].items()
 
@@ -369,41 +363,22 @@ class ParallelPersistentTrainer(BaseTrainer):
 
             if "basin_idx" not in data:
 
-
                 raise RuntimeError(
-
                     "Parallel Persistent LSTM requires basin_idx."
-
                 )
 
 
             basin_ids = data["basin_idx"]
 
 
-
-            if basin_ids.ndim == 2:
-
-
-                if not torch.all(
-
-                    basin_ids == basin_ids[:,0:1]
-
-                ):
-
-                    raise RuntimeError(
-
-                        "Multiple basin IDs detected inside "
-                        "one sequence."
-
-                    )
-
+            if basin_ids.ndim > 1:
 
                 basin_ids = basin_ids[:,0]
 
 
 
             # ------------------------------------------------------
-            # Previous hidden state
+            # Previous basin states
             # ------------------------------------------------------
 
             hidden_state = self._get_hidden_state(
@@ -414,8 +389,9 @@ class ParallelPersistentTrainer(BaseTrainer):
 
             # ------------------------------------------------------
             # Forward pass
+            # IMPORTANT:
             #
-            # Keep multi-basin sequence structure.
+            # Keep multi basin structure.
             # No flattening.
             # ------------------------------------------------------
 
@@ -430,7 +406,7 @@ class ParallelPersistentTrainer(BaseTrainer):
 
 
             # ------------------------------------------------------
-            # Update basin states
+            # Save states
             # ------------------------------------------------------
 
             self._update_hidden_state(
@@ -450,11 +426,8 @@ class ParallelPersistentTrainer(BaseTrainer):
             # ------------------------------------------------------
 
             loss_val, all_losses = self.loss_obj(
-
                 predictions,
-
                 data
-
             )
 
 
@@ -465,13 +438,14 @@ class ParallelPersistentTrainer(BaseTrainer):
                 nan_count += 1
 
 
-                if nan_count > self._allow_subsequent_nan_losses:
-
+                if (
+                    nan_count
+                    >
+                    self._allow_subsequent_nan_losses
+                ):
 
                     raise RuntimeError(
-
                         "Loss NaN repeatedly."
-
                     )
 
 
@@ -516,7 +490,6 @@ class ParallelPersistentTrainer(BaseTrainer):
                 f"Loss {loss_val.item():.5f}"
 
             )
-
 
 
             self.experiment_logger.log_step(
