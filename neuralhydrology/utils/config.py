@@ -766,27 +766,15 @@ class Config(object):
     @property
     def training_strategy(self) -> str:
         """
-        Select Persistent LSTM training strategy.
+        Training strategy for Persistent LSTM.
 
-        Options
-        -------
-        homogeneous:
-            Original Persistent LSTM approach.
-            Each optimizer update is based on sequences from
-            individual basins.
+        Options:
+            homogeneous:
+                Original Persistent LSTM implementation.
 
-            This preserves the existing implementation.
-
-        parallel:
-            Proposed Parallel Persistent LSTM strategy.
-
-            Multiple basins are processed simultaneously while
-            maintaining independent hidden and cell states for
-            each basin.
-
-        Default
-        -------
-        homogeneous
+            parallel:
+                Proposed Parallel Persistent LSTM implementation with
+                multi-basin batches and basin-indexed hidden states.
         """
 
         strategy = self._cfg.get(
@@ -794,15 +782,15 @@ class Config(object):
             "homogeneous"
         )
 
-        valid_strategies = [
+        valid = [
             "homogeneous",
             "parallel"
         ]
 
-        if strategy not in valid_strategies:
+        if strategy not in valid:
             raise ValueError(
                 f"Unknown training_strategy '{strategy}'. "
-                f"Available options are {valid_strategies}."
+                f"Choose one of {valid}."
             )
 
         return strategy
@@ -811,50 +799,45 @@ class Config(object):
     @property
     def parallel_persistent_n_basins(self) -> int:
         """
-        Number of basins processed simultaneously in the
-        Parallel Persistent LSTM strategy.
-
-        Represents the batch dimension:
-
-            X = [number_of_basins, sequence_length, features]
-
-        Only used when:
-
-            training_strategy = parallel
+        Number of basins processed simultaneously in one
+        Parallel Persistent LSTM batch.
         """
 
-        return self._cfg.get(
+        n_basins = self._cfg.get(
             "parallel_persistent_n_basins",
             self.batch_size
         )
+
+        if n_basins < 1:
+            raise ValueError(
+                "parallel_persistent_n_basins must be >= 1."
+            )
+
+        return n_basins
 
 
     @property
     def parallel_sequence_sampling(self) -> bool:
         """
-        Enable sequence-synchronized multi-basin sampling.
+        Enable synchronized sequence-level sampling.
 
-        When enabled:
+        Example:
 
-            Basin A sequence k
-            Basin B sequence k
-            Basin C sequence k
+        Basin A sequence k
+        Basin B sequence k
+        Basin C sequence k
 
         are processed together.
-
-        Required for:
-
-            training_strategy = parallel
         """
 
         value = self._cfg.get(
             "parallel_sequence_sampling",
-            False
+            self.training_strategy == "parallel"
         )
 
         if value and self.training_strategy != "parallel":
             raise ValueError(
-                "parallel_sequence_sampling=True requires "
+                "parallel_sequence_sampling requires "
                 "training_strategy='parallel'."
             )
 
@@ -864,23 +847,23 @@ class Config(object):
     @property
     def basin_state_cache(self) -> bool:
         """
-        Enable basin-indexed hidden/cell state caching.
+        Enable basin-indexed hidden/cell state storage.
 
-        The cache stores:
+        Stores:
 
             basin_id -> (hidden_state, cell_state, sequence_id)
 
-        Required for the Parallel Persistent LSTM strategy.
+        Required for Parallel Persistent LSTM.
         """
 
         value = self._cfg.get(
             "basin_state_cache",
-            False
+            self.training_strategy == "parallel"
         )
 
         if value and self.training_strategy != "parallel":
             raise ValueError(
-                "basin_state_cache=True requires "
+                "basin_state_cache requires "
                 "training_strategy='parallel'."
             )
 
