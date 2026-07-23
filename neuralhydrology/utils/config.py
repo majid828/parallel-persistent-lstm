@@ -766,19 +766,23 @@ class Config(object):
     @property
     def training_strategy(self) -> str:
         """
-        Select the persistent LSTM training strategy.
+        Select Persistent LSTM training strategy.
 
         Options
         -------
         homogeneous:
-            Original Persistent LSTM training.
-            Each batch contains sequences from one basin.
-            This preserves the submitted paper implementation.
+            Original Persistent LSTM approach.
+            Each optimizer update is based on sequences from
+            individual basins.
+
+            This preserves the existing implementation.
 
         parallel:
-            New Parallel Persistent LSTM strategy.
-            Multiple basins are processed in the same batch while
-            maintaining independent hidden/cell states per basin.
+            Proposed Parallel Persistent LSTM strategy.
+
+            Multiple basins are processed simultaneously while
+            maintaining independent hidden and cell states for
+            each basin.
 
         Default
         -------
@@ -798,17 +802,21 @@ class Config(object):
         if strategy not in valid_strategies:
             raise ValueError(
                 f"Unknown training_strategy '{strategy}'. "
-                f"Choose from {valid_strategies}."
+                f"Available options are {valid_strategies}."
             )
 
         return strategy
 
 
     @property
-    def parallel_persistent_batch_size(self) -> int:
+    def parallel_persistent_n_basins(self) -> int:
         """
-        Number of basins processed simultaneously in
-        Parallel Persistent LSTM training.
+        Number of basins processed simultaneously in the
+        Parallel Persistent LSTM strategy.
+
+        Represents the batch dimension:
+
+            X = [number_of_basins, sequence_length, features]
 
         Only used when:
 
@@ -816,7 +824,7 @@ class Config(object):
         """
 
         return self._cfg.get(
-            "parallel_persistent_batch_size",
+            "parallel_persistent_n_basins",
             self.batch_size
         )
 
@@ -824,20 +832,33 @@ class Config(object):
     @property
     def parallel_sequence_sampling(self) -> bool:
         """
-        Enable synchronized sequence-level sampling.
+        Enable sequence-synchronized multi-basin sampling.
 
-        True:
-            Basin i sequence k is paired with other basins'
-            sequence k.
+        When enabled:
 
-        False:
-            Default NeuralHydrology sampling.
+            Basin A sequence k
+            Basin B sequence k
+            Basin C sequence k
+
+        are processed together.
+
+        Required for:
+
+            training_strategy = parallel
         """
 
-        return self._cfg.get(
+        value = self._cfg.get(
             "parallel_sequence_sampling",
             False
         )
+
+        if value and self.training_strategy != "parallel":
+            raise ValueError(
+                "parallel_sequence_sampling=True requires "
+                "training_strategy='parallel'."
+            )
+
+        return value
 
 
     @property
@@ -845,16 +866,25 @@ class Config(object):
         """
         Enable basin-indexed hidden/cell state caching.
 
-        Required for:
+        The cache stores:
 
-            training_strategy = parallel
+            basin_id -> (hidden_state, cell_state, sequence_id)
+
+        Required for the Parallel Persistent LSTM strategy.
         """
 
-        return self._cfg.get(
+        value = self._cfg.get(
             "basin_state_cache",
             False
         )
 
+        if value and self.training_strategy != "parallel":
+            raise ValueError(
+                "basin_state_cache=True requires "
+                "training_strategy='parallel'."
+            )
+
+        return value
     # ------------------------------------------------------------------
     # Persistent LSTM / sampling options
     # ------------------------------------------------------------------
