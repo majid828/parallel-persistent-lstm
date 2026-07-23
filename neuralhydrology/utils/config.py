@@ -759,6 +759,101 @@ class Config(object):
     @property
     def seq_length(self) -> Union[int, Dict[str, int]]:
         return self._get_value_verbose("seq_length")
+    # ------------------------------------------------------------------
+    # Persistent LSTM training strategy selection
+    # ------------------------------------------------------------------
+
+    @property
+    def training_strategy(self) -> str:
+        """
+        Select the persistent LSTM training strategy.
+
+        Options
+        -------
+        homogeneous:
+            Original Persistent LSTM training.
+            Each batch contains sequences from one basin.
+            This preserves the submitted paper implementation.
+
+        parallel:
+            New Parallel Persistent LSTM strategy.
+            Multiple basins are processed in the same batch while
+            maintaining independent hidden/cell states per basin.
+
+        Default
+        -------
+        homogeneous
+        """
+
+        strategy = self._cfg.get(
+            "training_strategy",
+            "homogeneous"
+        )
+
+        valid_strategies = [
+            "homogeneous",
+            "parallel"
+        ]
+
+        if strategy not in valid_strategies:
+            raise ValueError(
+                f"Unknown training_strategy '{strategy}'. "
+                f"Choose from {valid_strategies}."
+            )
+
+        return strategy
+
+
+    @property
+    def parallel_persistent_batch_size(self) -> int:
+        """
+        Number of basins processed simultaneously in
+        Parallel Persistent LSTM training.
+
+        Only used when:
+
+            training_strategy = parallel
+        """
+
+        return self._cfg.get(
+            "parallel_persistent_batch_size",
+            self.batch_size
+        )
+
+
+    @property
+    def parallel_sequence_sampling(self) -> bool:
+        """
+        Enable synchronized sequence-level sampling.
+
+        True:
+            Basin i sequence k is paired with other basins'
+            sequence k.
+
+        False:
+            Default NeuralHydrology sampling.
+        """
+
+        return self._cfg.get(
+            "parallel_sequence_sampling",
+            False
+        )
+
+
+    @property
+    def basin_state_cache(self) -> bool:
+        """
+        Enable basin-indexed hidden/cell state caching.
+
+        Required for:
+
+            training_strategy = parallel
+        """
+
+        return self._cfg.get(
+            "basin_state_cache",
+            False
+        )
 
     # ------------------------------------------------------------------
     # Persistent LSTM / sampling options
