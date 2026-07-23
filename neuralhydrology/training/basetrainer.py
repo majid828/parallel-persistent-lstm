@@ -297,14 +297,69 @@ class BaseTrainer(object):
         if len(ds) == 0:
             raise ValueError("Dataset contains no samples.")
 
+
         # ------------------------------------------------------------------
-        # CORRECT persistent batching
+        # CORRECT persistent batching for both Persistent LSTM strategies
         # ------------------------------------------------------------------
+
         if (
             self.persistent_state
             and self.cfg.model.lower() == "persistentlstm"
-            and not self.parallel_persistent
         ):
+
+            # Build chronological basin index once
+            basin_to_sorted_indices = (
+                self._build_basin_chrono_index(ds)
+            )
+
+            # Store for ParallelPersistentTrainer
+            self.basin_to_sorted_indices = (
+                basin_to_sorted_indices
+            )
+
+
+            # --------------------------------------------------------------
+            # ORIGINAL Persistent LSTM
+            # --------------------------------------------------------------
+
+            if not self.parallel_persistent:
+
+                self._basin_batch_sampler = (
+                    BasinChronoInterleaveBatchSampler(
+                        basin_to_sorted_indices=basin_to_sorted_indices,
+                        batch_size=self.cfg.batch_size,
+                        drop_last=True,
+                        seed=self.cfg.seed
+                        if self.cfg.seed is not None
+                        else 0,
+                    )
+                )
+
+
+                self.loader = DataLoader(
+                    ds,
+                    batch_sampler=self._basin_batch_sampler,
+                    num_workers=self.cfg.num_workers,
+                    collate_fn=ds.collate_fn,
+                )
+
+
+                LOGGER.info(
+                    "### Using BasinChronoInterleaveBatchSampler"
+                )
+
+
+            # --------------------------------------------------------------
+            # NEW Parallel Persistent LSTM
+            # --------------------------------------------------------------
+
+            else:
+
+                LOGGER.info(
+                    "### Parallel Persistent mode detected. "
+                    "ParallelPersistentTrainer will create sampler."
+                )
+
             # NOTE: we deliberately DO NOT use any "persist across epochs" file saving here.
             # We only ensure: persistent across batches within epoch + random interleaving of basins.
             basin_to_sorted_indices = self._build_basin_chrono_index(ds)
@@ -326,6 +381,22 @@ class BaseTrainer(object):
                 collate_fn=ds.collate_fn,
             )
             LOGGER.info("### Using BasinChronoInterleaveBatchSampler (interleaved basins, chrono within basin).")
+        elif self.parallel_persistent:
+            # ParallelPersistentTrainer will replace loader
+            # using ParallelBasinSequenceBatchSampler
+            basin_to_sorted_indices = (
+                self._build_basin_chrono_index(ds)
+            )
+            
+            self.basin_to_sorted_indices = (
+                basin_to_sorted_indices
+            )
+            
+            LOGGER.info(
+                "### Parallel Persistent mode detected. "
+                "Waiting for ParallelPersistentTrainer sampler."
+            )
+            
         else:
             # Original non-persistent training
             self.loader = DataLoader(
@@ -335,6 +406,10 @@ class BaseTrainer(object):
                 num_workers=self.cfg.num_workers,
                 collate_fn=ds.collate_fn,
             )
+
+        
+                
+
 
         self.model = self._get_model().to(self.device)
 
@@ -493,7 +568,11 @@ class BaseTrainer(object):
         # ============================================================
         # Persistent path: persist across batches of same basin within epoch only
         # ============================================================
-        if self.persistent_state and self.cfg.model.lower() == "persistentlstm":
+        if (
+            self.persistent_state
+            and self.cfg.model.lower() == "persistentlstm"
+            and not self.parallel_persistent
+        ):
             # Reset all basin states at epoch start (NO cross-epoch persistence)
             epoch_state_cache: Dict[int, Optional[Tuple[torch.Tensor, torch.Tensor]]] = {}
 
