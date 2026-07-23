@@ -1,0 +1,223 @@
+# ==========================================================
+# Parallel Persistent LSTM Test Configuration
+# ==========================================================
+
+
+# ----------------------------------------------------------
+# Basin lists
+# ----------------------------------------------------------
+
+train_basin_file: /mnt/disk1/CAMELS_US/basin_lists/list_10_basins.txt
+validation_basin_file: /mnt/disk1/CAMELS_US/basin_lists/list_10_basins.txt
+test_basin_file: /mnt/disk1/CAMELS_US/basin_lists/list_10_basins.txt
+
+
+# ----------------------------------------------------------
+# Experiment information
+# ----------------------------------------------------------
+
+run_dir: /home/mhshah1/runs/parallel_persistent_test
+
+experiment_name: parallel_persistentlstm_test
+
+
+# ----------------------------------------------------------
+# Dates
+# ----------------------------------------------------------
+
+train_start_date: "1990-01-01 00:00:00"
+train_end_date: "2008-09-30 00:00:00"
+
+validation_start_date: "2008-10-01 00:00:00"
+validation_end_date: "2012-09-30 00:00:00"
+
+test_start_date: "2012-10-01 00:00:00"
+test_end_date: "2013-10-30 00:00:00"
+
+
+# ----------------------------------------------------------
+# Dataset
+# ----------------------------------------------------------
+
+dataset: hourly_camels_us
+
+data_dir: /mnt/disk1/CAMELS_US
+
+forcings: nldas_hourly
+
+
+
+# ==========================================================
+# MODEL
+# ==========================================================
+
+model: persistentlstm
+
+head: regression
+
+output_activation: linear
+
+
+hidden_size: 256
+
+initial_forget_bias: 3
+
+output_dropout: 0.4
+
+
+
+# ----------------------------------------------------------
+# NEW PARALLEL PERSISTENT STRATEGY
+# ----------------------------------------------------------
+
+training_strategy: parallel
+
+persistent_state: true
+
+parallel_persistent_n_basins: 8
+
+basin_state_cache: true
+
+
+
+nan_handling_method: masked
+
+
+
+# ==========================================================
+# Sequence settings
+# ==========================================================
+
+seq_length: 24
+
+predict_last_n: 24
+
+non_overlapping_sequences: true
+
+seq_stride: 24
+
+
+eval_warmup_steps: 720
+
+
+
+# ==========================================================
+# Inputs
+# ==========================================================
+
+dynamic_inputs:
+
+  - convective_fraction
+  - longwave_radiation
+  - potential_energy
+  - potential_evaporation
+  - pressure
+  - shortwave_radiation
+  - specific_humidity
+  - temperature
+  - total_precipitation
+  - wind_u
+  - wind_v
+
+
+
+target_variables:
+
+  - qobs_mm_per_hour
+
+
+
+static_attributes:
+
+  - geol_porostiy
+  - geol_permeability
+  - sand_frac
+  - silt_frac
+  - clay_frac
+  - elev_mean
+  - slope_mean
+  - area_gages2
+
+
+
+# ==========================================================
+# Optimization
+# ==========================================================
+
+optimizer: Adam
+
+loss: MSE
+
+
+learning_rate:
+
+  0: 0.001
+  12: 0.0001
+  15: 0.00007
+
+
+
+# Important:
+# Keep this for compatibility with NH,
+# but the parallel sampler controls basin batch size.
+
+batch_size: 8
+
+
+epochs: 5
+
+
+clip_gradient_norm: 1
+
+
+
+# ==========================================================
+# Evaluation
+# ==========================================================
+
+metrics:
+
+  - NSE
+  - KGE
+  - Alpha-NSE
+  - Beta-NSE
+
+
+
+# ==========================================================
+# Reproducibility
+# ==========================================================
+
+seed: 555
+
+
+
+# ==========================================================
+# Hardware
+# ==========================================================
+
+device: cuda:1
+
+num_workers: 4
+
+
+
+# ==========================================================
+# Logging / Saving
+# ==========================================================
+
+validate_every: 1
+
+validate_n_random_basins: 10
+
+cache_validation_data: true
+
+save_weights_every: 1
+
+save_validation_results: false
+
+log_tensorboard: false
+
+log_interval: 10
+
+log_n_figures: 0
