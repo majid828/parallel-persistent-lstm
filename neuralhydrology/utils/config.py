@@ -795,7 +795,14 @@ class Config(object):
 
         return strategy
 
+    @property
+    def parallel_persistent(self) -> bool:
+        """ 
+        Backward compatible switch for Parallel Persistent LSTM.
 
+        True when training_strategy is set to parallel.
+        """
+        return self.training_strategy == "parallel"
     @property
     def parallel_persistent_n_basins(self) -> int:
         """
