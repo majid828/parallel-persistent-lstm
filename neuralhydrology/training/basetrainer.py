@@ -284,6 +284,9 @@ class BaseTrainer(object):
             self._scaler = load_scaler(self.cfg.base_run_dir)
 
         ds = self._get_dataset()
+
+        # Store dataset for child trainers
+        self.train_dataset = ds
         if len(ds) == 0:
             raise ValueError("Dataset contains no samples.")
 
@@ -294,6 +297,8 @@ class BaseTrainer(object):
             # NOTE: we deliberately DO NOT use any "persist across epochs" file saving here.
             # We only ensure: persistent across batches within epoch + random interleaving of basins.
             basin_to_sorted_indices = self._build_basin_chrono_index(ds)
+            # Store for Parallel Persistent Trainer
+            self.basin_to_sorted_indices = basin_to_sorted_indices
 
             self._basin_batch_sampler = BasinChronoInterleaveBatchSampler(
                 basin_to_sorted_indices=basin_to_sorted_indices,
@@ -383,7 +388,10 @@ class BaseTrainer(object):
 
         for epoch in range(self._epoch + 1, self._epoch + self.cfg.epochs + 1):
             # IMPORTANT: changes interleaving pattern each epoch (still chrono within basin)
-            if self._basin_batch_sampler is not None:
+            if hasattr(self, "_parallel_batch_sampler"):
+                self._parallel_batch_sampler.set_epoch(epoch)
+            elif self._basin_batch_sampler is not None:
+
                 self._basin_batch_sampler.set_epoch(epoch)
 
             if not self._dynamic_learning_rate:
