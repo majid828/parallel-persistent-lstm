@@ -1,26 +1,58 @@
 from neuralhydrology.training.basetrainer import BaseTrainer
-from neuralhydrology.training.parallelpersistenttrainer import ParallelPersistentTrainer
+from neuralhydrology.training.parallelpersistenttrainer import (
+    ParallelPersistentTrainer
+)
 
 from neuralhydrology.utils.config import Config
 
 
 
 def start_training(cfg: Config):
+    """
+    Start model training.
 
-    if cfg.head.lower() in ['regression', 'gmm', 'umal', 'cmal', '']:
+    Trainer selection is controlled through the config:
+
+    training_strategy: homogeneous
+        -> Original Persistent LSTM / BaseTrainer
+
+    training_strategy: parallel
+        -> Proposed Parallel Persistent LSTM
+
+    Parameters
+    ----------
+    cfg : Config
+        The run configuration.
+    """
 
 
-        # =====================================================
-        # NEW PARALLEL PERSISTENT LSTM SWITCH
-        # =====================================================
+    # MC-LSTM is a special case, where the head returns an empty string
+    # but the model is trained as regression model.
 
-        if getattr(cfg, "parallel_persistent", False):
+    if cfg.head.lower() in [
+        'regression',
+        'gmm',
+        'umal',
+        'cmal',
+        ''
+    ]:
 
-            trainer = ParallelPersistentTrainer(cfg=cfg)
+
+        # ==========================================================
+        # Trainer selection
+        # ==========================================================
+
+        if cfg.parallel_persistent:
+
+            trainer = ParallelPersistentTrainer(
+                cfg=cfg
+            )
 
         else:
 
-            trainer = BaseTrainer(cfg=cfg)
+            trainer = BaseTrainer(
+                cfg=cfg
+            )
 
 
     else:
@@ -29,6 +61,11 @@ def start_training(cfg: Config):
             f"Unknown head {cfg.head}."
         )
 
+
+
+    # ==========================================================
+    # Start training
+    # ==========================================================
 
     trainer.initialize_training()
 
