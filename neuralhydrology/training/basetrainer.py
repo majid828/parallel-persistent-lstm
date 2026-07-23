@@ -142,6 +142,12 @@ class BaseTrainer(object):
 
         # Persistent LSTM flag (your control switch)
         self.persistent_state = getattr(self.cfg, "persistent_state", False)
+        self.parallel_persistent = getattr(
+            self.cfg,
+            "parallel_persistent",
+            False
+        )
+ 
 
         # NOTE: we do NOT want persistence across epochs anymore.
         # These are kept only so older configs won't crash, but they are NOT used here.
@@ -173,6 +179,7 @@ class BaseTrainer(object):
 
         # Will be created in initialize_training
         self._basin_batch_sampler: Optional[BasinChronoInterleaveBatchSampler] = None
+        self._parallel_batch_sampler = None
 
     # ------------------------------------------------------------------
     # Helpers for persistent LSTM reshaping and slicing
@@ -293,7 +300,11 @@ class BaseTrainer(object):
         # ------------------------------------------------------------------
         # CORRECT persistent batching
         # ------------------------------------------------------------------
-        if self.persistent_state and self.cfg.model.lower() == "persistentlstm":
+        if (
+            self.persistent_state
+            and self.cfg.model.lower() == "persistentlstm"
+            and not self.parallel_persistent
+        )
             # NOTE: we deliberately DO NOT use any "persist across epochs" file saving here.
             # We only ensure: persistent across batches within epoch + random interleaving of basins.
             basin_to_sorted_indices = self._build_basin_chrono_index(ds)
@@ -388,11 +399,11 @@ class BaseTrainer(object):
 
         for epoch in range(self._epoch + 1, self._epoch + self.cfg.epochs + 1):
             # IMPORTANT: changes interleaving pattern each epoch (still chrono within basin)
-            if hasattr(self, "_parallel_batch_sampler"):
+            if self._parallel_batch_sampler is not None:
                 self._parallel_batch_sampler.set_epoch(epoch)
             elif self._basin_batch_sampler is not None:
-
                 self._basin_batch_sampler.set_epoch(epoch)
+            
 
             if not self._dynamic_learning_rate:
                 if epoch in self.cfg.learning_rate.keys():
