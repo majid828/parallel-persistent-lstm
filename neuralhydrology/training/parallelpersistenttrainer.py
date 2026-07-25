@@ -129,7 +129,7 @@ class ParallelPersistentTrainer(BaseTrainer):
                 n_basins_per_batch=
                     self.cfg.parallel_persistent_n_basins,
 
-                drop_last=True,
+                drop_last=False,
 
                 seed=
                     self.cfg.seed
