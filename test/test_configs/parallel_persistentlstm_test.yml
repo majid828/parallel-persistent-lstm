@@ -7,9 +7,9 @@
 # Basin lists
 # ----------------------------------------------------------
 
-train_basin_file: /mnt/disk1/CAMELS_US/basin_lists/list_10_basins.txt
-validation_basin_file: /mnt/disk1/CAMELS_US/basin_lists/list_10_basins.txt
-test_basin_file: /mnt/disk1/CAMELS_US/basin_lists/list_10_basins.txt
+train_basin_file: /mnt/disk1/CAMELS_US/basin_lists/list_507_copy_OWP1.txt
+validation_basin_file: /mnt/disk1/CAMELS_US/basin_lists/list_507_copy_OWP1.txt
+test_basin_file: /mnt/disk1/CAMELS_US/basin_lists/list_507_copy_OWP1.txt
 
 
 # ----------------------------------------------------------
@@ -25,26 +25,24 @@ experiment_name: parallel_persistentlstm_test
 # Dates
 # ----------------------------------------------------------
 
-train_start_date: "1990-01-01 00:00:00"
-train_end_date: "2008-09-30 00:00:00"
+train_start_date: "01/01/1990"
+train_end_date: "30/09/2008"
 
-validation_start_date: "2008-10-01 00:00:00"
-validation_end_date: "2012-09-30 00:00:00"
+validation_start_date: "01/10/2008"
+validation_end_date: "30/09/2012"
 
-test_start_date: "2012-10-01 00:00:00"
-test_end_date: "2013-10-30 00:00:00"
-
+test_start_date: "01/10/2012"
+test_end_date: "30/10/2013"
 
 # ----------------------------------------------------------
 # Dataset
 # ----------------------------------------------------------
 
-dataset: hourly_camels_us
-
-data_dir: /mnt/disk1/CAMELS_US
-
-forcings: nldas_hourly
-
+dataset: camels_us          #for daily data
+#dataset: hourly_camels_us
+data_dir: /mnt/disk1/CAMELS_US/
+#forcings: nldas_hourly
+forcings: nldas          #for daily data
 
 
 # ==========================================================
@@ -74,7 +72,7 @@ training_strategy: parallel
 
 persistent_state: true
 
-parallel_persistent_n_basins: 8
+parallel_persistent_n_basins: 10
 
 basin_state_cache: true
 
@@ -88,16 +86,16 @@ nan_handling_method: masked
 # Sequence settings
 # ==========================================================
 
-seq_length: 24
+seq_length: 2
 
-predict_last_n: 24
+predict_last_n: 2
 
 non_overlapping_sequences: true
 
-seq_stride: 24
+seq_stride: 2
 
 
-eval_warmup_steps: 720
+eval_warmup_steps: 30
 
 
 
@@ -106,40 +104,42 @@ eval_warmup_steps: 720
 # ==========================================================
 
 dynamic_inputs:
-
-  - convective_fraction
-  - longwave_radiation
-  - potential_energy
-  - potential_evaporation
-  - pressure
-  - shortwave_radiation
-  - specific_humidity
-  - temperature
-  - total_precipitation
-  - wind_u
-  - wind_v
-
+ #- convective_fraction
+ #- longwave_radiation
+ #- potential_energy
+ #- potential_evaporation
+ #- pressure
+ #- shortwave_radiation
+ #- specific_humidity
+ #- temperature
+ #- total_precipitation
+ #- wind_u
+ #- wind_v
+ - PRCP(mm/day)   #for daily data
+ - SRAD(W/m2)   #for daily data
+ #- Tmax(C)      #for daily data
+ #- Tmin(C)       #for daily data
+ - Vp(Pa)
+ - Tmean(C)
 
 
 target_variables:
-
-  - qobs_mm_per_hour
+ #["qobs_cfs"]
+- QObs(mm/d) #daily
+#- qobs_mm_per_hour #nldas
 
 
 
 static_attributes:
-
-  - geol_porostiy
-  - geol_permeability
-  - sand_frac
-  - silt_frac
-  - clay_frac
-  - elev_mean
-  - slope_mean
-  - area_gages2
-
-
-
+# - carbonate_rocks_frac
+ - geol_porostiy
+ - geol_permeability
+ - sand_frac
+ - silt_frac
+ - clay_frac
+ - elev_mean
+ - slope_mean
+ - area_gages2
 # ==========================================================
 # Optimization
 # ==========================================================
@@ -154,17 +154,17 @@ learning_rate:
   0: 0.001
   12: 0.0001
   15: 0.00007
-
+  #24: 0.00003
 
 
 # Important:
 # Keep this for compatibility with NH,
 # but the parallel sampler controls basin batch size.
 
-batch_size: 8
+batch_size: 10
 
 
-epochs: 5
+epochs: 30
 
 
 clip_gradient_norm: 1
@@ -196,9 +196,9 @@ seed: 555
 # Hardware
 # ==========================================================
 
-device: cuda:1
+device: cpu
 
-num_workers: 4
+num_workers: 8
 
 
 
@@ -206,7 +206,7 @@ num_workers: 4
 # Logging / Saving
 # ==========================================================
 
-validate_every: 1
+validate_every: 3
 
 validate_n_random_basins: 10
 
